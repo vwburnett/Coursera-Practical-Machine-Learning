@@ -1,0 +1,218 @@
+---
+title: "Practical Machine Learning Project"
+author: "Van Wyk Burnett"
+date: "10/04/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Synopsis
+This report will evaluate a database of measures recorded on how 6 participants perform the exercise "Unilateral Dumbbell Biceps Curl".
+
+This database will be used to build a prediction model using the classifcation trees, random forests and gradient boosting methods. Random forests will prove to predict the outcome (classe) with the best accuracy and this model that were built will then be used to predict the test set, the test set is also provided.
+
+## Data Processing
+
+Loading in training data
+```{r loading data train}
+traindata <- read.csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"),header=T, sep = ",")
+dim(traindata)
+```
+
+Loading in test data
+```{r loading data test}
+testdata <- read.csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"), header=TRUE, sep=",")
+dim(testdata)
+```
+
+## Exploratory Data Analysis
+```{r unique class}
+unique(traindata$classe)
+``` 
+
+Unilateral Dumbbell Biceps Curl in five different fashions:
+Class A - exactly according to the specification,
+Class B - throwing the elbows to the front,
+Class C - lifting the dumbbell only halfway,
+Class D - lowering the dumbbell only halfway and
+Class E - throwing the hips to the front.
+
+Check for columns with missing data
+```{r missvals}
+suppressPackageStartupMessages(library(dplyr))
+missingvals <- sapply(traindata, function(traindata)sum(is.na(traindata)))
+missingvals <- as.data.frame(missingvals)
+names(missingvals) <- c("Sum")
+missingvaltable <- missingvals != 0
+missingvalfinal <- subset(missingvaltable, missingvaltable == TRUE)
+dim(missingvalfinal)
+```
+This indicates 67 columns that have missing values.
+
+These columns are:
+```{r missvals name}
+removecols <- rownames(missingvalfinal)
+removecols
+```
+
+We can exclude all these column from the training set and call it traindata2.
+
+```{r remove missvals}
+traindata <- traindata[,!(names(traindata) %in% removecols)]
+dim(traindata)
+```
+
+We will do the same for the testdata
+
+```{r remove missvals test}
+testdata <- testdata[,colSums(is.na(testdata)) == 0]
+dim(testdata)
+``` 
+
+Now we can remove columns that have little impact in the variable "Classe".
+THe first seven columns provide information about the people who dod the test and the timestamps, these columns can be removed.
+
+```{r remove first cols}
+traindata <- traindata[,-c(1:7)]
+dim(traindata)
+testdata <- testdata[, -c(1:7)]
+dim(testdata)
+```
+
+Remove variables with near-zero variance
+```{r novar remove, message=FALSE}
+
+library(caret)
+NZV <- nearZeroVar(traindata)
+traindata <- traindata[, -NZV]
+dim(traindata)
+```
+
+## Preparing data for prediction
+We will need to split the traindata into a training data set and a test set we will call this; train_train and train_test. The split will be 70% for train_train and 03% for train_test.
+
+```{r split data, message=FALSE}
+set.seed(315)
+inTrain <- createDataPartition(traindata$classe, p = 0.7, list = FALSE)
+train_train <- traindata[inTrain, ]
+train_test <- traindata[-inTrain, ]
+dim(train_train)
+```
+
+```{r view split data}
+dim(train_test)
+```
+
+
+##Building the Model
+We will use two algorithms, the classification trees and the rondom forests, to predict the outcome.
+
+#Classification tree
+```{r ClassTree}
+suppressPackageStartupMessages(library(rattle))
+suppressPackageStartupMessages(library(rpart.plot))
+trControl<- trainControl(method = "cv", number=5)
+Tree1 <- train(classe ~ .,data=train_train, method="rpart", trControl = trControl)
+fancyRpartPlot(Tree1$finalModel)
+``` 
+
+```{r predict classtree}
+trainpred <- predict(Tree1, newdata = train_test)
+cmatrix <- confusionMatrix(train_test$classe, trainpred)
+cmatrix$table
+``` 
+
+```{r accuracy classtree}
+cmatrix$overall[1]
+``` 
+The accuracy of this model is very low at 48.94%, thus the outcome "classe" will not be predictd very well by the predictors that we considered.
+
+Now we will use the random forests algoritm to see if we can get a better accuracy.
+
+#Random Forest
+
+```{r forest model}
+suppressPackageStartupMessages(library(randomForest))
+forest1 <- train(classe~., data=train_train, method = "rf", trControl=trControl)
+```
+
+```{r show forest}
+print(forest1)
+```
+
+Accuracy by number of predictors.
+```{r accuracy forest by var}
+plot(forest1, main="Accuracy  of Random forest model by number of predictors")
+```
+
+```{r forest predict}
+trainFpred <- predict(forest1, newdata=train_test)
+cmatrixF <- confusionMatrix(train_test$classe, trainFpred)
+cmatrixF$table
+```
+
+```{r forest accuracy}
+cmatrixF$overall[1]
+```
+
+```{r finalmodel names}
+names(forest1$finalModel)
+```
+
+```{r final model classe}
+forest1$finalModel$classe
+```
+
+```{r error plot}
+plot(forest1$finalModel, main = "Model error of Random forest model by number of trees")
+```
+
+```{r Impvars}
+MostImpVars <- varImp(forest1)
+MostImpVars
+```
+
+With the random forest model we get an accuracy of 99.29% using ross-validation with 5 steps, that is very good. 
+
+In the graph "Accuracy by Random forest model by number of predictors" we can see that the oprimal number of predictor is 27. There might be some dependencies between the predictors.
+
+Let's considert the gradient boosting method for prediction.
+
+#Gradient boosting method
+
+```{r gradient boost model, message=FALSE, results='hide'}
+library(gbm)
+boost1 <- train(classe ~ .,data = train_train, method = "gbm", trControl = trControl)
+```
+
+```{r boost result}
+print(boost1)
+```
+
+```{r boost plot}
+plot(boost1)
+```
+
+```{r gradient boost predict}
+trainBpred <- predict(boost1, newdata=train_test)
+cmatrixB <- confusionMatrix(train_test$classe, trainBpred)
+cmatrixB$table
+```
+
+```{r accuracy gradient boost}
+cmatrixB$overall[1]
+```
+
+The Gradient boosting method's accuracy in predicting the outcome is 95.84%, this is very accurate.
+
+##Conclusion
+The random forest mothod is most accurate in predicting the outcome ("classe"), we will use this method to predict the values in the testdata.
+
+```{r final prediction}
+FinalPrediction <- predict(forest1, newdata=testdata)
+FinalPrediction
+```
+
